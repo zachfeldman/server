@@ -92,7 +92,9 @@ def test_unknown_color_mode_falls_back_to_default() -> None:
     assert analyzer.color_mode == "smooth"
 
 
-@pytest.mark.parametrize("mode", ["smooth", "ambient", "flashing", "energetic", "pulse", "auto", "strobe"])
+@pytest.mark.parametrize(
+    "mode", ["smooth", "ambient", "flashing", "energetic", "pulse", "auto", "strobe"]
+)
 def test_every_preset_renders_without_error(mode: str) -> None:
     """Every color_mode renders a valid command given spectrum and beat input."""
     analyzer = HALightsAudioAnalyzer(color_mode=mode, brightness=100)
@@ -153,6 +155,7 @@ def test_fast_subbeats_get_a_tighter_flash_decay_than_the_default() -> None:
     # under the default decay, so every beat here should be tightened.
     analyzer.push_beats([(0.0, False), (0.2, False)])
     for beat in analyzer._beats[:-1]:
+        assert beat.decay_s is not None
         assert _MIN_FLASH_DECAY_S <= beat.decay_s <= _BEAT_FLASH_DECAY_S
 
 
