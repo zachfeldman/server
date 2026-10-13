@@ -1,0 +1,49 @@
+{
+  "config_entries": {
+    "light_entities": {
+      "label": "Light(s)",
+      "description": "The Home Assistant light entities this group should drive. Pulled live from Home Assistant - if a light is already set up there (any brand/integration), it's selectable here, no extra setup needed."
+    },
+    "color_mode": {
+      "label": "Mode",
+      "description": "'Auto' picks between Smooth/Ambient/Energetic/Flashing on its own based on how energetic the music currently sounds, instead of staying on one fixed mode for the whole track. 'Strobe' is a hard on/off toggle, not a dim/brighten - see its own warning below."
+    },
+    "brightness": {
+      "label": "Brightness",
+      "description": "The ceiling this group renders up to, as a percent."
+    },
+    "beat_multiplier": {
+      "label": "Speed",
+      "description": "Pulses per beat. 1x follows the track's real tempo exactly. 2x/4x insert evenly-spaced pulses between beats (softer than the real beat) for a faster feel - how crisp these look in practice depends on your lights' own response time."
+    },
+    "transition_style": {
+      "label": "Transition style",
+      "description": "'Fade' eases between colors/brightness smoothly. 'Instant' snaps to a hard, un-eased change on every update instead - a punchier, more percussive feel, at the cost of visible stepping during the non-beat color drift most modes also do."
+    },
+    "sensitivity": {
+      "label": "Sensitivity",
+      "description": "Amplifies the detected audio signal itself, as a percent - distinct from Speed (which only changes how often pulses fire, not how strong they look). Raise this if quieter listening volumes make the lights look washed-out/barely reactive; 100% is unmodified."
+    },
+    "hue_lock_enabled": {
+      "label": "Lock color",
+      "description": "Keep the lights on one fixed color (set via 'Locked color' below) regardless of beat/treble-driven color changes - only brightness and saturation keep reacting to the music. For matching a room's decor or a specific color rather than roaming the color wheel."
+    },
+    "hue_lock_deg": {
+      "label": "Locked color (hue degrees)",
+      "description": "Only used when 'Lock color' above is on. 0=red, 60=yellow, 120=green, 180=cyan, 240=blue, 300=magenta."
+    },
+    "restore_on_stop": {
+      "label": "Restore lights when music stops",
+      "description": "When the music stops, put each light back exactly how it was just before syncing started (on/off, brightness, color) instead of leaving it frozen at whatever the last beat happened to render."
+    }
+  },
+  "setup_flow": {
+    "user": {
+      "title": "Choose your lights",
+      "description": "Pick which Home Assistant light entities this group should drive. Any light already set up in Home Assistant, of any brand, is selectable here."
+    }
+  },
+  "manifest": {
+    "description": "Sync any Home Assistant light to music in real time, using the visualizer pipeline (the same beat/spectrum feed Hue Lights Sync uses) and Home Assistant's own light.turn_on service - works with any light HA already controls (Kasa, Hue, LIFX, Zigbee, whatever), with zero extra setup beyond picking the entities."
+  }
+}
