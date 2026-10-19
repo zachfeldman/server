@@ -17,10 +17,10 @@ Bridge visualizer role (features keyed to playback timestamp)
 HALightsAudioAnalyzer (bass/treble/overall EMA, beat flash scheduling)   <- this provider
        |
        v (8 Hz render loop -> LightCommand: hue/saturation/brightness/transition)
-HALightGroupBridge -> hass provider's HomeAssistantClient -> light.turn_on/turn_off
+HALightGroupBridge -> hass provider's HomeAssistantClient -> light.turn_on
        |
        v (Home Assistant's own websocket API, then whatever integration owns the entity)
-Home Assistant -> the physical light (Kasa, Hue, Zigbee, LIFX, whatever)
+Home Assistant -> the physical light (Hue, Zigbee, LIFX, Wi-Fi strips, whatever)
 ```
 
 The bridge registers with the local Sendspin server as an **in-process
@@ -49,10 +49,15 @@ with (see `bridge.py`'s `_dispatch_send`).
 | **Smooth** (default) | Gentle, beat-tinted color drift with bass-driven brightness swell. |
 | **Ambient** | Slower drift, bass-reactive saturation. |
 | **Flashing** | Strong pulse on every beat, resting brightness stays low between beats. |
-| **Energetic** | Big brightness swings on hits plus fast color rotation. |
 | **Pulse** | Brightness continuously tracks the track's overall loudness (full spectrum, not just bass); no beat flash. |
-| **Auto** | Dynamically picks between Ambient/Smooth/Energetic/Flashing based on the track's current energy, debounced so it doesn't flap at a boundary. Never selects Strobe. |
-| **Strobe** | Hard on/off toggle - a real `light.turn_off` between beats, full brightness during the flash window. ⚠️ Combined with a high Speed setting on a fast track this can produce rapid, high-contrast flashing; not recommended for anyone with photosensitive epilepsy. |
+
+`Energetic`, `Auto`, and `Strobe` existed through 2026-10-19 but were cut
+after a real-hardware test found the render loop dying silently (no
+exception, no log activity at all) for 10-20+ second stretches on all
+three - see "Incubation history" below. The debug-level heartbeat logging
+added to `bridge.py`'s render loop (`_render_tick`/`_start_render_loop`/
+`_cancel_render_loop`) is still in place, so re-adding any of them has a
+real shot at localizing the actual bug on a future real-hardware run.
 
 A **Lock color** setting overrides every mode's hue output with one fixed
 value (brightness/saturation keep reacting normally), for staying on a
@@ -78,11 +83,14 @@ whether anything is currently playing.
 
 ## Incubation history
 
-This plugin was developed and tested against real hardware (TP-Link Kasa
-strips via Home Assistant, a Chromecast-grouped speaker) as a standalone
-pip package, [`ha-lights-sync`](https://github.com/zachfeldman/ha-lights-sync),
+This plugin was developed and tested against real hardware (Wi-Fi and
+Zigbee strips via Home Assistant, a Chromecast-grouped speaker) as a
+standalone pip package, [`ha-lights-sync`](https://github.com/zachfeldman/ha-lights-sync),
 loaded via [`music-assistant-plugin-manager`](https://github.com/TigreGotico/music-assistant-plugin-manager)
-before this PR. That repo's commit history has the full incremental
-development/debugging trail (per-entity adaptive pacing, the Sendspin
-stuck-call wall-clock workaround in `_dispatch_send`, tuning each mode's
-strobe contrast, etc.) if any of that context is useful during review.
+before this PR. That repo is archived now that development has moved
+in-tree; its `pre-fork-archive` branch preserves its final state (commit
+history squashed into one commit per logical feature) if any of that
+incremental development/debugging trail - per-entity adaptive pacing, the
+Sendspin stuck-call wall-clock workaround in `_dispatch_send`, the
+real-hardware test session that found and removed `energetic`/`auto`/
+`strobe`, etc. - is useful during review.

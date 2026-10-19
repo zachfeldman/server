@@ -23,35 +23,24 @@ CONF_RESTORE_ON_STOP: Final[str] = "restore_on_stop"
 # concepts carry over for anyone who has used that one. First entry is the
 # default. "pulse" is the odd one out - its whole point is brightness
 # continuously tracking overall loudness and nothing else (no beat flash,
-# no hue jump) - see analyzer.py's _ModePreset.use_overall_level. "auto"
-# doesn't have its own _ModePreset at all - render() dynamically substitutes
-# one of smooth/ambient/energetic/flashing based on the track's detected
-# energy, see analyzer.py's _select_auto_preset. "strobe" is a hard on/off
-# toggle (real light.turn_off between flashes, not just dimming) - see
-# _ModePreset.hard_strobe and the photosensitivity warning on its ConfigEntry
-# in provider.py. Deliberately excluded from "auto"'s candidate pool so
-# auto-selection can never surprise someone with a strobe effect.
+# no hue jump) - see analyzer.py's _ModePreset.use_overall_level.
+#
+# "energetic", "auto", and "strobe" existed here through 2026-10-19 but were
+# removed after a real-hardware test session: the render loop died silently
+# (no exception, no log activity of any kind) for all three of them for
+# 10-20+ second stretches, root cause not found despite adding real
+# heartbeat logging (see bridge.py's _render_tick/_start_render_loop/
+# _cancel_render_loop) - "smooth" was in the same test run but inconclusive
+# (never actually got a clean settings change fired at it) and was kept.
+# Rather than ship modes confirmed to freeze on real hardware with no fix in
+# hand, they were cut. If re-adding any of them: the heartbeat logging is
+# still in place, so a fresh real-hardware run should localize this
+# properly instead of inferring from log silence like the original
+# investigation had to.
 COLOR_MODES: Final[tuple[str, ...]] = (
-    "smooth", "ambient", "flashing", "energetic", "pulse", "auto", "strobe",
+    "smooth", "ambient", "flashing", "pulse",
 )
 DEFAULT_COLOR_MODE: Final[str] = COLOR_MODES[0]
-
-# -- Auto mode --
-#
-# Candidate presets "auto" picks between, ordered low to high energy, paired
-# with the *overall loudness* EMA level (0-1) above which that candidate
-# becomes the pick. Hysteresis (AUTO_MIN_DWELL_S) rather than per-tick
-# re-evaluation, so a track hovering right at a boundary doesn't flap
-# between two presets every few seconds - once auto switches, it commits to
-# the new pick for at least this long before it's allowed to switch again,
-# even if the level crosses back over the boundary sooner.
-AUTO_MODE_CANDIDATES: Final[tuple[tuple[str, float], ...]] = (
-    ("ambient", 0.0),
-    ("smooth", 0.30),
-    ("energetic", 0.60),
-    ("flashing", 0.85),
-)
-AUTO_MIN_DWELL_S: Final[float] = 4.0
 
 # -- Hue lock --
 #
@@ -136,7 +125,7 @@ DEFAULT_TRANSITION_STYLE: Final[str] = TRANSITION_STYLES[0]
 # How far ahead of "now" a render target is scheduled, to absorb command
 # round-trip time through Home Assistant's light.turn_on service (our own
 # call to HA's websocket API, then HA's own call to the light's integration,
-# e.g. Kasa/Hue/Zigbee - two network hops, not Hue Entertainment's dedicated
+# e.g. Hue/Zigbee/Wi-Fi - two network hops, not Hue Entertainment's dedicated
 # low-latency DTLS stream). Deliberately larger than Hue's own default (20ms)
 # - see README for the round trip this was tuned against.
 DEFAULT_HA_LATENCY_MS: Final[int] = 150
@@ -152,8 +141,9 @@ DEFAULT_HA_LATENCY_MS: Final[int] = 150
 #
 # 8Hz (125ms) rather than a more conservative rate because 2x/4x speed needs
 # the resolution to tell consecutive sub-beats apart - measured round trip
-# to real Kasa-via-HA hardware during development was 13-220ms (mostly
-# under 100ms), which mostly clears this budget but not always; a render
+# to real smart-light-via-HA hardware during early development (TP-Link
+# Kasa strips, specifically) was 13-220ms (mostly under 100ms), which mostly
+# clears this budget but not always; a render
 # tick landing on top of a still-in-flight one is skipped rather than
 # queued (see bridge.py's _dispatch_send), so very fast songs at 4x can
 # still visibly skip a pulse here and there - that's a real hardware/

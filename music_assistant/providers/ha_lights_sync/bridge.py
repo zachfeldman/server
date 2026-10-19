@@ -18,8 +18,9 @@ Music Assistant expects a lighting bridge to follow). What's different:
   Assistant" plugin (`mass.get_provider("hass").hass`, a
   `hass_client.HomeAssistantClient` - already connected/authenticated by that
   plugin, no separate config needed here). This is what makes the plugin
-  work with *any* light Home Assistant controls - Kasa, Hue, LIFX, Zigbee,
-  whatever - rather than needing its own device-specific transport per brand.
+  work with *any* light Home Assistant controls - Hue, LIFX, Zigbee, Wi-Fi
+  strips, whatever - rather than needing its own device-specific transport
+  per brand.
 - The render loop runs at RENDER_RATE_HZ (constants.py), much lower than
   Hue's 30Hz, because a service call is one request/response round trip
   (through HA's websocket API, then whatever HA does internally) rather than
@@ -500,38 +501,56 @@ class HALightGroupBridge:
             return
         was_streaming = self._is_streaming
         snapshot: dict[str, dict[str, Any]] = {}
-        if was_streaming:
-            self._cancel_render_loop()
-        else:
-            # Same wall-clock race as _begin_streaming, same reason: a
-            # hung get_states() must not block the flash (or anything
-            # after it) forever - see that method's docstring.
-            snapshot_task = self.mass.create_task(self._snapshot_entity_states())
-            await asyncio.wait({snapshot_task}, timeout=_PRE_SYNC_SNAPSHOT_BUDGET_S)
-            snapshot = snapshot_task.result() if snapshot_task.done() else {}
-
-        self.logger.info(
-            "Flashing %d light%s white to confirm a settings change for '%s'",
-            len(self.entity_ids),
-            "" if len(self.entity_ids) == 1 else "s",
-            self.group_name,
-        )
-        for entity_id in self.entity_ids:
-            self.mass.create_task(self._send_flash_white(entity_id))
-
-        await asyncio.sleep(SETTINGS_FLASH_S)
-
-        if was_streaming:
-            if self._is_streaming:
-                self._start_render_loop()
+        # Wrapped in try/finally so a crash anywhere in this method (an
+        # unexpected exception from a hass call, a cancellation racing a
+        # newer settings change - see _trigger_settings_flash) can never
+        # leave the render loop permanently paused: the resume logic in the
+        # finally below runs regardless of how the try block exits.
+        try:
+            if was_streaming:
+                self._cancel_render_loop()
             else:
-                # The stream ended naturally while we were mid-flash -
-                # nothing to resume into. _debounced_stop's own restore may
-                # already have run (or may run right after this); fall
-                # back to it rather than leaving the light stuck white.
-                await self._restore_pre_sync_state()
-        else:
-            await self._restore_snapshot(snapshot)
+                # Same wall-clock race as _begin_streaming, same reason: a
+                # hung get_states() must not block the flash (or anything
+                # after it) forever - see that method's docstring.
+                snapshot_task = self.mass.create_task(self._snapshot_entity_states())
+                await asyncio.wait({snapshot_task}, timeout=_PRE_SYNC_SNAPSHOT_BUDGET_S)
+                snapshot = snapshot_task.result() if snapshot_task.done() else {}
+
+            self.logger.info(
+                "Flashing %d light%s white to confirm a settings change for '%s'",
+                len(self.entity_ids),
+                "" if len(self.entity_ids) == 1 else "s",
+                self.group_name,
+            )
+            for entity_id in self.entity_ids:
+                self.mass.create_task(self._send_flash_white(entity_id))
+
+            await asyncio.sleep(SETTINGS_FLASH_S)
+        except asyncio.CancelledError:
+            # Expected/normal: a newer settings change replaced this flash
+            # (see _trigger_settings_flash's cancel-and-replace) - re-raise
+            # after the finally below still runs, so the render loop gets
+            # resumed either way.
+            raise
+        except Exception:
+            self.logger.exception(
+                "_flash_confirmation crashed for '%s' - render loop restart below still "
+                "runs regardless, so lights shouldn't freeze even though this flash failed",
+                self.group_name,
+            )
+        finally:
+            if was_streaming:
+                if self._is_streaming:
+                    self._start_render_loop()
+                else:
+                    # The stream ended naturally while we were mid-flash -
+                    # nothing to resume into. _debounced_stop's own restore may
+                    # already have run (or may run right after this); fall
+                    # back to it rather than leaving the light stuck white.
+                    await self._restore_pre_sync_state()
+            else:
+                await self._restore_snapshot(snapshot)
 
     async def _send_flash_white(self, entity_id: str) -> None:
         """One-shot white/full-brightness command for the settings-change flash."""
@@ -555,15 +574,40 @@ class HALightGroupBridge:
 
     def _start_render_loop(self) -> None:
         if self._render_handle is not None:
+            self.logger.debug(
+                "_start_render_loop('%s'): already have a handle (id=%s) - no-op",
+                self.group_name,
+                id(self._render_handle),
+            )
             return
         self._render_handle = self.mass.loop.call_later(RENDER_PERIOD_S, self._render_tick)
+        self.logger.debug(
+            "_start_render_loop('%s'): scheduled tick, handle id=%s",
+            self.group_name,
+            id(self._render_handle),
+        )
 
     def _cancel_render_loop(self) -> None:
         if self._render_handle is not None:
+            self.logger.debug(
+                "_cancel_render_loop('%s'): cancelling handle id=%s",
+                self.group_name,
+                id(self._render_handle),
+            )
             self._render_handle.cancel()
             self._render_handle = None
+        else:
+            self.logger.debug("_cancel_render_loop('%s'): no handle to cancel", self.group_name)
 
     def _render_tick(self) -> None:
+        # Debug-level heartbeat: proves the call_later chain is still alive.
+        # Added after a real-hardware test found the render loop going
+        # silent for 10-20+ second stretches on some color_modes with no
+        # exception ever raised (which this method's own try/except would
+        # otherwise have caught) - this line is what lets a future run see
+        # the scheduling state directly instead of inferring it from log
+        # silence.
+        self.logger.debug("_render_tick('%s'): fired, streaming=%s", self.group_name, self._is_streaming)
         self._render_handle = None
         if not self._is_streaming:
             return
@@ -578,6 +622,16 @@ class HALightGroupBridge:
         finally:
             if self._is_streaming:
                 self._render_handle = self.mass.loop.call_later(RENDER_PERIOD_S, self._render_tick)
+                self.logger.debug(
+                    "_render_tick('%s'): rescheduled, handle id=%s",
+                    self.group_name,
+                    id(self._render_handle),
+                )
+            else:
+                self.logger.debug(
+                    "_render_tick('%s'): not rescheduling, streaming went False mid-tick",
+                    self.group_name,
+                )
 
     def _dispatch_send(self, entity_id: str, command: LightCommand) -> None:
         """
@@ -664,32 +718,21 @@ class HALightGroupBridge:
         # what actually guards against this never returning at all.
         start = time.monotonic()
         try:
-            if command.on:
-                await self._hass.call_service(
-                    "light",
-                    "turn_on",
-                    service_data={
-                        "hs_color": [command.hue, command.saturation],
-                        "brightness_pct": command.brightness,
-                        # light.turn_on's transition is in seconds, unlike the
-                        # millisecond unit used everywhere else in this plugin
-                        # (matching python-kasa's/Hue's convention) - convert
-                        # here, at the one spot that actually calls the HA
-                        # service.
-                        "transition": command.transition_ms / 1000.0,
-                    },
-                    target={"entity_id": entity_id},
-                )
-            else:
-                # "strobe" mode's off phase - a real turn_off, not a dim
-                # floor (see analyzer.py's _ModePreset.hard_strobe). Same
-                # transition handling as turn_on, for consistency.
-                await self._hass.call_service(
-                    "light",
-                    "turn_off",
-                    service_data={"transition": command.transition_ms / 1000.0},
-                    target={"entity_id": entity_id},
-                )
+            await self._hass.call_service(
+                "light",
+                "turn_on",
+                service_data={
+                    "hs_color": [command.hue, command.saturation],
+                    "brightness_pct": command.brightness,
+                    # light.turn_on's transition is in seconds, unlike the
+                    # millisecond unit used everywhere else in this plugin
+                    # (matching python-kasa's/Hue's convention) - convert
+                    # here, at the one spot that actually calls the HA
+                    # service.
+                    "transition": command.transition_ms / 1000.0,
+                },
+                target={"entity_id": entity_id},
+            )
             elapsed_ms = round((time.monotonic() - start) * 1000)
             self.logger.debug("light.turn_on for %s took %dms", entity_id, elapsed_ms)
             # Only successful, non-stuck calls feed the pacing estimate - a

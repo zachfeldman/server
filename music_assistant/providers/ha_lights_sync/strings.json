@@ -6,7 +6,7 @@
     },
     "color_mode": {
       "label": "Mode",
-      "description": "'Auto' picks between Smooth/Ambient/Energetic/Flashing on its own based on how energetic the music currently sounds, instead of staying on one fixed mode for the whole track. 'Strobe' is a hard on/off toggle, not a dim/brighten - see its own warning below."
+      "description": "How the lights react: 'Smooth'/'Ambient' are gentler, beat-driven color drift; 'Flashing' is high-contrast brightness on the beat; 'Pulse' tracks overall loudness continuously instead of flashing on individual beats."
     },
     "brightness": {
       "label": "Brightness",
@@ -44,6 +44,6 @@
     }
   },
   "manifest": {
-    "description": "Sync any Home Assistant light to music in real time, using the visualizer pipeline (the same beat/spectrum feed Hue Lights Sync uses) and Home Assistant's own light.turn_on service - works with any light HA already controls (Kasa, Hue, LIFX, Zigbee, whatever), with zero extra setup beyond picking the entities."
+    "description": "Sync any Home Assistant light to music in real time, using the visualizer pipeline (the same beat/spectrum feed Hue Lights Sync uses) and Home Assistant's own light.turn_on service - works with any light HA already controls (Hue, LIFX, Zigbee, Wi-Fi strips, whatever), with zero extra setup beyond picking the entities."
   }
 }
